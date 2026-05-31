@@ -1,0 +1,1 @@
+Add the "Z" remote command for a continuous streaming spectrum sweep. Unlike "P", it re-sweeps back-to-back and streams each sweep without the per-sweep round-trip, mute/retune, or redraw, until the host sends any byte to stop it. This gives host applications a much faster live spectrum/waterfall over both USB Serial and Bluetooth LE.

@@ -106,6 +106,7 @@ The ad hoc protocol is the main remote-control protocol. It can be used over:
 | <kbd>t</kbd> | Toggle Log          | Toggle the receiver monitor (log) on and off                                                     |
 | <kbd>C</kbd> | Screenshot          | Capture a screenshot and print it as a BMP image in HEX format                                   |
 | <kbd>P</kbd> | Spectrum Sweep      | Example `P10,64` (step, points). Runs an on-device sweep centered on the current frequency and prints RSSI/SNR as a HEX blob. See [Spectrum sweep](#spectrum-sweep). |
+| <kbd>Z</kbd> | Streaming Sweep     | Example `Z10,64` (step, points). Like `P`, but re-sweeps continuously until any byte is received. See [Streaming sweep](#streaming-sweep). |
 | <kbd>$</kbd> | Show Memory Slots   | Show memory slots in a format suitable for restoring them after the reset                        |
 | <kbd>#</kbd> | Set Memory Slot     | Example `#01,VHF,107900000,FM` (slot, band, frequency, mode). Set freq to 0 to clear a slot.     |
 | <kbd>F</kbd> | Set Frequency       | Example `F107900000`. Frequency is in Hz and must stay within the current band. In SSB modes, sub-kHz digits set the BFO. |
@@ -210,6 +211,30 @@ reached). Each point is two hex bytes: the raw RSSI (`0..127`) followed by the r
 ```text
 P10790,10,64
 2a032b042c05...
+```
+
+(streaming-sweep)=
+#### Streaming sweep
+
+The <kbd>Z</kbd> command is a continuous variant of [the spectrum sweep](#spectrum-sweep)
+for live scope / waterfall views. It takes the same `Z<step>,<points>` arguments and emits
+the same `P<startFreq>,<step>,<count>` header + HEX blob, but instead of stopping after one
+sweep it **re-sweeps continuously**, streaming one sweep after another.
+
+This avoids the per-sweep round-trip and the mute/retune/redraw overhead of issuing `P`
+repeatedly, so the effective refresh rate is significantly higher. The audio stays muted
+and the screen shows a "Remote stream..." indicator for the whole session.
+
+The stream runs until **any byte** is received from the host, which stops it (the radio
+then unmutes, restores the frequency, and resumes normal operation). A host that does not
+support the command sees no response, so applications can fall back to repeated `P` sweeps.
+
+```text
+P10790,10,64
+2a032b042c05...
+P10790,10,64
+2b042c052d06...
+... (until the host sends a byte)
 ```
 
 ### Bluetooth HID protocol

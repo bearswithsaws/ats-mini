@@ -58,6 +58,9 @@ int bleLoop(uint8_t bleMode)
     if (BLESerial.isConnected())
       remoteTickTime(&BLESerial, &remoteBLEState);
     if (!BLESerial.isConnected()) return 0;
+    // While a remote sweep/stream owns the radio, leave incoming bytes for the
+    // scan's abort check (consumeAbortPending()) instead of executing them.
+    if (scanRemoteActive()) return 0;
     if (BLESerial.available())
       return remoteDoCommand(&BLESerial, &remoteBLEState, BLESerial.read());
     return 0;
