@@ -782,6 +782,11 @@ void loop()
   encCountAccel = ble_direction? ble_direction : encCountAccel;
   if(ble_event & REMOTE_PREFS) prefsRequestSave(SAVE_ALL);
 
+  // Advance an in-flight cooperative remote spectrum sweep (non-blocking).
+  // While active, the periodic tuner/display work below is skipped so it does
+  // not contend with the scan.
+  scanRemoteTick();
+
   // Block encoder rotation when in the locked sleep mode
   if(encCount && sleepOn() && sleepModeIdx==SLEEP_LOCKED) encCount = encCountAccel = 0;
 
@@ -949,24 +954,30 @@ void loop()
     elapsedSleep = elapsedCommand = currentTime = millis();
   }
 
-  if((currentTime - elapsedRSSI) > MIN_ELAPSED_RSSI_TIME)
+  // Skip the periodic tuner work while a remote sweep owns the SI473x; these
+  // would otherwise read/retune at the scan's transient frequency and the
+  // squelch logic in processRssiSnr() would fight the scan's mute.
+  if(!scanRemoteActive())
   {
-    needRedraw |= processRssiSnr();
-    elapsedRSSI = currentTime;
-  }
+    if((currentTime - elapsedRSSI) > MIN_ELAPSED_RSSI_TIME)
+    {
+      needRedraw |= processRssiSnr();
+      elapsedRSSI = currentTime;
+    }
 
-  // Periodically check received RDS information
-  if((currentTime - lastRDSCheck) > RDS_CHECK_TIME)
-  {
-    needRedraw |= (currentMode == FM) && (snr >= 12) && checkRds();
-    lastRDSCheck = currentTime;
-  }
+    // Periodically check received RDS information
+    if((currentTime - lastRDSCheck) > RDS_CHECK_TIME)
+    {
+      needRedraw |= (currentMode == FM) && (snr >= 12) && checkRds();
+      lastRDSCheck = currentTime;
+    }
 
-  // Periodically check schedule
-  if((currentTime - lastScheduleCheck) > SCHEDULE_CHECK_TIME)
-  {
-    needRedraw |= identifyFrequency(currentFrequency + currentBFO / 1000, true);
-    lastScheduleCheck = currentTime;
+    // Periodically check schedule
+    if((currentTime - lastScheduleCheck) > SCHEDULE_CHECK_TIME)
+    {
+      needRedraw |= identifyFrequency(currentFrequency + currentBFO / 1000, true);
+      lastScheduleCheck = currentTime;
+    }
   }
 
   // Periodically synchronize time via NTP
@@ -995,8 +1006,10 @@ void loop()
     background_timer = currentTime;
   }
 
-  // Redraw screen if necessary
-  if(needRedraw) drawScreen();
+  // Redraw screen if necessary. While a remote sweep is active the screen holds
+  // the "Remote scan..." indicator drawn at scanRemoteStart(); suppress the
+  // normal redraw so it persists until the sweep completes.
+  if(needRedraw && !scanRemoteActive()) drawScreen();
 
   // Add a small default delay in the main loop
   delay(5);

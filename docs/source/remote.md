@@ -105,6 +105,7 @@ The ad hoc protocol is the main remote-control protocol. It can be used over:
 | <kbd>o</kbd> | Sleep Off           |                                                                                                  |
 | <kbd>t</kbd> | Toggle Log          | Toggle the receiver monitor (log) on and off                                                     |
 | <kbd>C</kbd> | Screenshot          | Capture a screenshot and print it as a BMP image in HEX format                                   |
+| <kbd>P</kbd> | Spectrum Sweep      | Example `P10,64` (step, points). Runs an on-device sweep centered on the current frequency and prints RSSI/SNR as a HEX blob. See [Spectrum sweep](#spectrum-sweep). |
 | <kbd>$</kbd> | Show Memory Slots   | Show memory slots in a format suitable for restoring them after the reset                        |
 | <kbd>#</kbd> | Set Memory Slot     | Example `#01,VHF,107900000,FM` (slot, band, frequency, mode). Set freq to 0 to clear a slot.     |
 | <kbd>F</kbd> | Set Frequency       | Example `F107900000`. Frequency is in Hz and must stay within the current band. In SSB modes, sub-kHz digits set the BFO. |
@@ -148,6 +149,45 @@ A quick one-liner for macOS and Linux over the **USB Serial** transport (change 
 
 ```shell
 echo -n C | socat stdio /dev/cu.usbmodem14401,echo=0,raw | xxd -r -p > /tmp/screenshot.bmp
+```
+
+(spectrum-sweep)=
+#### Spectrum sweep
+
+The <kbd>P</kbd> command exposes the receiver's built-in fast scanner over the remote
+protocol so a host application can build a spectrum / waterfall view much faster than by
+polling the monitor output. It runs a single sweep centered on the current frequency,
+muting the audio for the duration and restoring the frequency afterwards.
+
+The sweep runs cooperatively: the command returns immediately and the scan advances in
+the background, so the receiver stays responsive (it shows a "Remote scan..." indicator
+while sweeping). Turning the encoder or pressing a key aborts the sweep early, returning
+whatever points were measured so far.
+
+Send the command as `P<step>,<points>` followed by a newline:
+
+* `step` - the frequency step between points, in the band's internal units
+  (FM = 10 kHz, AM/SSB = 1 kHz, the same units as `currentFrequency` in the monitor
+  output).
+* `points` - the number of points to sweep (clamped to 1..200).
+
+Like the screenshot command, <kbd>P</kbd> turns the monitor (log) off first so the bulk
+response cannot interleave with telemetry. The response is a header line followed by a HEX
+blob:
+
+```text
+P<startFreq>,<step>,<count>
+<count two-byte hex pairs: rssi then snr, wrapped at 32 points per line>
+```
+
+`startFreq` and `step` are in the same internal units as the request; `count` is the
+number of points actually measured (it may be smaller than requested if a band edge is
+reached). Each point is two hex bytes: the raw RSSI (`0..127`) followed by the raw SNR
+(`0..127`). For example, `P10,64` on the FM band might return:
+
+```text
+P10790,10,64
+2a032b042c05...
 ```
 
 ### Bluetooth HID protocol

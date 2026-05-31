@@ -1,0 +1,1 @@
+Add the "P" remote command to run a non-blocking on-device spectrum sweep and stream the RSSI/SNR results back as a HEX blob over USB Serial and Bluetooth LE. The sweep advances cooperatively so the receiver stays responsive.
