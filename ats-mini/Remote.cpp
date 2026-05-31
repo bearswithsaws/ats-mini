@@ -347,6 +347,56 @@ void remotePrintStatus(Stream* stream, RemoteState* state)
 }
 
 //
+// Print one RDS text field to the remote, replacing any character that would
+// break line/CSV framing. Commas are only safe in the final field, so callers
+// pass allowComma=true just for the radio text. A leading 0xFF (the EiBi
+// long-name marker on the station name) is skipped.
+//
+static void remotePrintRdsField(Stream* stream, const char* s, bool allowComma)
+{
+  if(!s) return;
+  if((uint8_t)s[0] == 0xFF) s++;
+  for( ; *s ; s++)
+  {
+    char c = *s;
+    if(((uint8_t)c < ' ') || (!allowComma && c == ','))
+      c = ' ';
+    stream->print(c);
+  }
+}
+
+//
+// Print current RDS info to the remote, if any is present:
+//   $RDS,<pi_hex>,<pty>,<ps>,<rt>\r\n
+// The PI code is 4 hex digits (0000 if none); the program type is resolved
+// text (no commas); the station name and radio text are sanitized. Radio text
+// may contain commas, so it is sent last. Nothing is emitted when all fields
+// are empty. These are cheap reads of the RDS buffers (no SI473x access), so
+// unlike the screen capture this stays non-blocking.
+//
+static void remotePrintRds(Stream* stream)
+{
+  const char *ps  = getStationName();
+  const char *rt  = getRadioText();
+  const char *pty = getProgramInfo();
+  uint16_t    pi  = getRdsPiCode();
+
+  // Station name may carry the EiBi long-name marker; skip it for the test
+  const char *psShown = (ps && ((uint8_t)ps[0] == 0xFF)) ? ps + 1 : ps;
+
+  if(!(pi || (psShown && psShown[0]) || (rt && rt[0]) || (pty && pty[0])))
+    return;
+
+  stream->printf("$RDS,%04X,", pi);
+  remotePrintRdsField(stream, pty, false);
+  stream->print(',');
+  remotePrintRdsField(stream, ps, false);
+  stream->print(',');
+  remotePrintRdsField(stream, rt, true);
+  stream->print("\r\n");
+}
+
+//
 // Tick remote time, periodically printing status
 //
 void remoteTickTime(Stream* stream, RemoteState* state)
@@ -356,8 +406,9 @@ void remoteTickTime(Stream* stream, RemoteState* state)
     // Mark time and increment diagnostic sequence number
     state->remoteTimer = millis();
     state->remoteSeqnum++;
-    // Show status
+    // Show status, followed by RDS info when present
     remotePrintStatus(stream, state);
+    remotePrintRds(stream);
   }
 }
 

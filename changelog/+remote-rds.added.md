@@ -1,0 +1,1 @@
+Send RDS station information (PI code, program type, station name, radio text) over the remote protocol on a "$RDS" line alongside the monitor output, over both USB Serial and Bluetooth LE. The line is non-blocking and only emitted when station info is available.
