@@ -141,6 +141,28 @@ The following comma separated information is sent out when the monitor (log) mod
 
 In SSB mode, the "Display" frequency (Hz) = (currentFrequency x 1000) + currentBFO
 
+#### RDS output
+
+When the monitor (log) is enabled, an additional `$RDS` line is sent alongside
+each status line whenever station information is available (RDS on FM, or a
+name resolved from the built-in tables on other bands):
+
+```text
+$RDS,<pi>,<pty>,<ps>,<rt>
+```
+
+| Field | Parameter    | Comments                                                            |
+|-------|--------------|---------------------------------------------------------------------|
+| `pi`  | PI code      | Four hex digits, `0000` when unknown                                |
+| `pty` | Program type | Resolved text from the RDS/RBDS table, empty when unknown           |
+| `ps`  | Station name | Program Service / station name, empty when unknown                  |
+| `rt`  | Radio text   | First line of the radio text, empty when unknown                    |
+
+The line is only emitted when at least one field carries data. Characters that
+would break the line/CSV framing are replaced with spaces; the radio text may
+contain commas, so it is always sent last. These are cheap reads of the RDS
+buffers, so the line is non-blocking and does not interfere with control.
+
 #### Making screenshots
 
 The screenshot function is intended for interface and theme designers, as well as for the documentation writers. It dumps the screen to the remote console as a BMP image in HEX format. To convert it to an image file, you need to convert the HEX string to binary format.
