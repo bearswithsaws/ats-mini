@@ -185,16 +185,20 @@ static uint16_t scanRemotePoints = SCAN_POINTS;
 //
 // Stream the completed sweep to the remote:
 //
-//   P<startFreq>,<step>,<count>\r\n   - ASCII header line
-//   <count * 2-byte hex rssi,snr>     - hex blob, wrapped at 32 points per line
+//   P<startFreq>,<step>,<count>,<unitHz>\r\n  - ASCII header line
+//   <count * 2-byte hex rssi,snr>             - hex blob, wrapped at 32 points/line
 //
-// startFreq/step are in the band's internal units (FM = 10 kHz, AM/SSB = 1 kHz),
-// count is the number of points actually measured (may be < requested at a band
-// edge or on abort). rssi/snr are the raw 0..127 values from the SI473x.
+// startFreq/step are in the band's internal units (FM = 10 kHz, AM/SSB = 1 kHz);
+// unitHz is the size of that unit in Hz (10000 or 1000) so the host can convert
+// to absolute frequencies without independently knowing the mode. count is the
+// number of points actually measured (may be < requested at a band edge or on
+// abort). rssi/snr are the raw 0..127 values from the SI473x.
 //
 static void scanRemoteEmit(Stream* stream)
 {
-  stream->printf("\r\nP%u,%u,%u\r\n", scanStartFreq, scanStep, scanCount);
+  uint32_t unitHz = (currentMode == FM) ? 10000 : 1000;
+  stream->printf("\r\nP%u,%u,%u,%lu\r\n", scanStartFreq, scanStep, scanCount,
+                 (unsigned long)unitHz);
   for(uint16_t i=0 ; i<scanCount ; i++)
   {
     stream->printf("%02x%02x", scanData[i].rssi, scanData[i].snr);

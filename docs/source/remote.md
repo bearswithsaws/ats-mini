@@ -199,17 +199,20 @@ response cannot interleave with telemetry. The response is a header line followe
 blob:
 
 ```text
-P<startFreq>,<step>,<count>
+P<startFreq>,<step>,<count>,<unitHz>
 <count two-byte hex pairs: rssi then snr, wrapped at 32 points per line>
 ```
 
-`startFreq` and `step` are in the same internal units as the request; `count` is the
-number of points actually measured (it may be smaller than requested if a band edge is
-reached). Each point is two hex bytes: the raw RSSI (`0..127`) followed by the raw SNR
-(`0..127`). For example, `P10,64` on the FM band might return:
+`startFreq` and `step` are in the band's internal units (the same units as the request);
+`unitHz` is the size of that unit in Hz (`10000` on FM, `1000` on AM/SSB), so a host can
+convert each point to an absolute frequency (`startFreq` × `unitHz`, stepping by `step` ×
+`unitHz`) without separately tracking the mode. `count` is the number of points actually
+measured (it may be smaller than requested if a band edge is reached). Each point is two
+hex bytes: the raw RSSI (`0..127`) followed by the raw SNR (`0..127`). For example, `P10,64`
+on the FM band might return:
 
 ```text
-P10790,10,64
+P10790,10,64,10000
 2a032b042c05...
 ```
 
@@ -218,7 +221,7 @@ P10790,10,64
 
 The <kbd>Z</kbd> command is a continuous variant of [the spectrum sweep](#spectrum-sweep)
 for live scope / waterfall views. It takes the same `Z<step>,<points>` arguments and emits
-the same `P<startFreq>,<step>,<count>` header + HEX blob, but instead of stopping after one
+the same `P<startFreq>,<step>,<count>,<unitHz>` header + HEX blob, but instead of stopping after one
 sweep it **re-sweeps continuously**, streaming one sweep after another.
 
 This avoids the per-sweep round-trip and the mute/retune/redraw overhead of issuing `P`
@@ -230,9 +233,9 @@ then unmutes, restores the frequency, and resumes normal operation). A host that
 support the command sees no response, so applications can fall back to repeated `P` sweeps.
 
 ```text
-P10790,10,64
+P10790,10,64,10000
 2a032b042c05...
-P10790,10,64
+P10790,10,64,10000
 2b042c052d06...
 ... (until the host sends a byte)
 ```
