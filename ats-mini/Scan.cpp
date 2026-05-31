@@ -8,6 +8,13 @@
 #define TUNE_DELAY_FM      60
 #define TUNE_DELAY_AM_SSB  80
 
+// Faster per-point settle used only by the remote sweep/stream. The normal
+// delays above are tuned for clean audio after a deliberate tune; an RSSI/SNR
+// scan can tolerate a shorter settle, which roughly multiplies the sweep rate.
+// Starting values to validate on-air; raise if the trace gets noisy.
+#define TUNE_DELAY_SCAN_FM     15
+#define TUNE_DELAY_SCAN_AM_SSB 25
+
 #define SCAN_POLL_TIME    10 // Tuning status polling interval (msecs)
 #define SCAN_POINTS      200 // Number of frequencies to scan
 
@@ -226,8 +233,9 @@ static void scanRemoteBegin(Stream* stream, uint16_t step, uint16_t points, bool
   // Sanitize parameters (scanInit clamps points, but guard step too)
   if(step < 1) step = 1;
 
-  // Set tuning delay
-  rx.setMaxDelaySetFrequency(currentMode == FM ? TUNE_DELAY_FM : TUNE_DELAY_AM_SSB);
+  // Set tuning delay. Use the faster scan-specific settle: a remote sweep only
+  // samples RSSI/SNR, so it does not need the full audio-settle delay.
+  rx.setMaxDelaySetFrequency(currentMode == FM ? TUNE_DELAY_SCAN_FM : TUNE_DELAY_SCAN_AM_SSB);
   // Mute the audio
   muteOn(MUTE_TEMP, true);
   // Flag is set by rotary encoder and cleared on seek/scan entry

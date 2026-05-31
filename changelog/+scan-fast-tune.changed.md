@@ -1,0 +1,1 @@
+Speed up the remote spectrum sweep/stream by using a shorter per-point tuning settle (the remote scan only samples RSSI/SNR, so it does not need the full audio-settle delay). This multiplies the effective sweep rate of the "P" and "Z" commands.
