@@ -1,0 +1,1 @@
+Include the band unit (Hz per step) in the remote spectrum sweep header (`P<startFreq>,<step>,<count>,<unitHz>`). This lets a host convert sweep points to absolute frequencies correctly without separately tracking the receiver mode, so the spectrum frequency axis and resolution stay accurate even when telemetry is off.
