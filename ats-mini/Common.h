@@ -212,6 +212,7 @@ bool drawBattery(int x, int y);
 
 // Scan.c
 void scanRun(uint16_t centerFreq, uint16_t step);
+void scanRemoteSweep(Stream* stream, uint16_t step, uint16_t points);
 float scanGetRSSI(uint16_t freq);
 float scanGetSNR(uint16_t freq);
 

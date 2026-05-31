@@ -155,6 +155,28 @@ static bool remoteSetFrequency(Stream *stream)
   return true;
 }
 
+//
+// Run a spectrum sweep for the remote: P<step>,<points>\r
+//
+static bool remoteSpectrumSweep(Stream* stream)
+{
+  long int step = remoteReadInteger(stream);
+  if(remoteReadChar(stream) != ',')
+    return remoteShowError(stream, "Expected ','");
+
+  long int points = remoteReadInteger(stream);
+  if(!expectNewline(stream))
+    return remoteShowError(stream, "Expected newline");
+
+  if(step <= 0)
+    return remoteShowError(stream, "Invalid step");
+  if(points <= 0)
+    return remoteShowError(stream, "Invalid points");
+
+  scanRemoteSweep(stream, (uint16_t)step, (uint16_t)points);
+  return true;
+}
+
 static void remoteGetMemories(Stream* stream)
 {
   for (uint8_t i = 0; i < getTotalMemories(); i++) {
@@ -434,6 +456,10 @@ int remoteDoCommand(Stream* stream, RemoteState* state, char key)
     case 'C':
       state->remoteLogOn = false;
       remoteCaptureScreen(stream);
+      break;
+    case 'P':
+      state->remoteLogOn = false;
+      remoteSpectrumSweep(stream);
       break;
     case 't':
       state->remoteLogOn = !state->remoteLogOn;

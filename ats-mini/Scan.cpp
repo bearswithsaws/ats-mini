@@ -26,6 +26,7 @@ static uint8_t  scanStatus = SCAN_OFF;
 static uint16_t scanStartFreq;
 static uint16_t scanStep;
 static uint16_t scanCount;
+static uint16_t scanMaxPoints = SCAN_POINTS;
 static uint8_t  scanMinRSSI;
 static uint8_t  scanMaxRSSI;
 static uint8_t  scanMinSNR;
@@ -54,10 +55,11 @@ float scanGetSNR(uint16_t freq)
   return((result - scanMinSNR) / (float)(scanMaxSNR - scanMinSNR + 1));
 }
 
-static void scanInit(uint16_t centerFreq, uint16_t step)
+static void scanInit(uint16_t centerFreq, uint16_t step, uint16_t points)
 {
-  scanStep    = step;
-  scanCount   = 0;
+  scanStep      = step;
+  scanCount     = 0;
+  scanMaxPoints = points<1? 1 : points>SCAN_POINTS? SCAN_POINTS : points;
   scanMinRSSI = 255;
   scanMaxRSSI = 0;
   scanMinSNR  = 255;
@@ -66,11 +68,11 @@ static void scanInit(uint16_t centerFreq, uint16_t step)
   scanTime    = millis();
 
   const Band *band = getCurrentBand();
-  int freq = scanStep * (centerFreq / scanStep - SCAN_POINTS / 2);
+  int freq = scanStep * (centerFreq / scanStep - scanMaxPoints / 2);
 
   // Adjust to band boundaries
-  if(freq + scanStep * (SCAN_POINTS - 1) > band->maximumFreq)
-    freq = band->maximumFreq - scanStep * (SCAN_POINTS - 1);
+  if(freq + scanStep * (scanMaxPoints - 1) > band->maximumFreq)
+    freq = band->maximumFreq - scanStep * (scanMaxPoints - 1);
   if(freq < band->minimumFreq)
     freq = band->minimumFreq;
   scanStartFreq = freq;
@@ -82,7 +84,7 @@ static void scanInit(uint16_t centerFreq, uint16_t step)
 static bool scanTickTime()
 {
   // Scan must be on
-  if((scanStatus!=SCAN_RUN) || (scanCount>=SCAN_POINTS)) return(false);
+  if((scanStatus!=SCAN_RUN) || (scanCount>=scanMaxPoints)) return(false);
 
   // Wait for the right time
   if(millis() - scanTime < SCAN_POLL_TIME) return(true);
@@ -121,7 +123,7 @@ static bool scanTickTime()
   freq += scanStep;
 
   // Set next frequency to scan or expire scan
-  if((++scanCount >= SCAN_POINTS) || !isFreqInBand(getCurrentBand(), freq) || consumeAbortPending())
+  if((++scanCount >= scanMaxPoints) || !isFreqInBand(getCurrentBand(), freq) || consumeAbortPending())
     scanStatus = SCAN_DONE;
   else
     rx.setFrequency(freq); // Implies tuning delay
@@ -147,11 +149,55 @@ void scanRun(uint16_t centerFreq, uint16_t step)
   // Save current frequency
   uint16_t curFreq = rx.getFrequency();
   // Scan the whole range
-  for(scanInit(centerFreq, step) ; scanTickTime(););
+  for(scanInit(centerFreq, step, SCAN_POINTS) ; scanTickTime(););
   // Restore current frequency
   rx.setFrequency(curFreq);
   // Unmute the audio
   muteOn(MUTE_TEMP, false);
   // Restore tuning delay
   rx.setMaxDelaySetFrequency(TUNE_DELAY_DEFAULT);
+}
+
+//
+// Run a sweep centered on the current frequency and stream the result to the
+// remote. Output format (after the caller has disabled the telemetry log):
+//
+//   P<startFreq>,<step>,<count>\r\n   - ASCII header line
+//   <count * 2-byte hex rssi,snr>     - hex blob, wrapped at 32 points per line
+//
+// startFreq/step are in the band's internal units (FM = 10 kHz, AM/SSB = 1 kHz),
+// count is the number of points actually measured (may be < requested at a band
+// edge). rssi/snr are the raw 0..127 values from the SI473x.
+//
+void scanRemoteSweep(Stream* stream, uint16_t step, uint16_t points)
+{
+  // Sanitize parameters (scanInit clamps points, but guard step too)
+  if(step < 1) step = 1;
+
+  // Set tuning delay
+  rx.setMaxDelaySetFrequency(currentMode == FM ? TUNE_DELAY_FM : TUNE_DELAY_AM_SSB);
+  // Mute the audio
+  muteOn(MUTE_TEMP, true);
+  // Flag is set by rotary encoder and cleared on seek/scan entry
+  seekStop = false;
+  // Save current frequency
+  uint16_t curFreq = rx.getFrequency();
+  // Scan the range centered on the current frequency
+  for(scanInit(currentFrequency, step, points) ; scanTickTime(););
+  // Restore current frequency
+  rx.setFrequency(curFreq);
+  // Unmute the audio
+  muteOn(MUTE_TEMP, false);
+  // Restore tuning delay
+  rx.setMaxDelaySetFrequency(TUNE_DELAY_DEFAULT);
+
+  // Stream header then the hex blob of rssi/snr pairs
+  stream->printf("\r\nP%u,%u,%u\r\n", scanStartFreq, scanStep, scanCount);
+  for(uint16_t i=0 ; i<scanCount ; i++)
+  {
+    stream->printf("%02x%02x", scanData[i].rssi, scanData[i].snr);
+    if((i & 31) == 31) stream->println("");
+  }
+  stream->println("");
+  stream->flush();
 }
