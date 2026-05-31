@@ -178,6 +178,30 @@ static bool remoteSpectrumSweep(Stream* stream)
   return true;
 }
 
+//
+// Start a continuous streaming sweep for the remote: Z<step>,<points>\r
+// Emits sweeps back-to-back (same P-header format) until the host sends any
+// byte, which aborts the stream. See scanRemoteStartStream().
+//
+static bool remoteStreamSweep(Stream* stream)
+{
+  long int step = remoteReadInteger(stream);
+  if(remoteReadChar(stream) != ',')
+    return remoteShowError(stream, "Expected ','");
+
+  long int points = remoteReadInteger(stream);
+  if(!expectNewline(stream))
+    return remoteShowError(stream, "Expected newline");
+
+  if(step <= 0)
+    return remoteShowError(stream, "Invalid step");
+  if(points <= 0)
+    return remoteShowError(stream, "Invalid points");
+
+  scanRemoteStartStream(stream, (uint16_t)step, (uint16_t)points);
+  return true;
+}
+
 static void remoteGetMemories(Stream* stream)
 {
   for (uint8_t i = 0; i < getTotalMemories(); i++) {
@@ -462,6 +486,10 @@ int remoteDoCommand(Stream* stream, RemoteState* state, char key)
       state->remoteLogOn = false;
       remoteSpectrumSweep(stream);
       break;
+    case 'Z':
+      state->remoteLogOn = false;
+      remoteStreamSweep(stream);
+      break;
     case 't':
       state->remoteLogOn = !state->remoteLogOn;
       break;
@@ -502,6 +530,11 @@ static int serialLoop(Stream* stream, RemoteState* state, uint8_t usbMode)
   if(usbMode == USB_OFF) return 0;
 
   remoteTickTime(stream, state);
+
+  // While a remote sweep/stream owns the radio, leave incoming bytes in the
+  // buffer for the scan's abort check (consumeAbortPending()) instead of
+  // executing them as commands. This is how a streaming sweep is stopped.
+  if(scanRemoteActive()) return 0;
 
   if (stream->available())
     return remoteDoCommand(stream, state, stream->read());

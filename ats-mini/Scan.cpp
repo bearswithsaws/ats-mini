@@ -32,6 +32,7 @@ static uint8_t  scanMinRSSI;
 static uint8_t  scanMaxRSSI;
 static uint8_t  scanMinSNR;
 static uint8_t  scanMaxSNR;
+static bool     scanAborted = false; // True if the last sweep ended via consumeAbortPending()
 
 static inline uint8_t min(uint8_t a, uint8_t b) { return(a<b? a:b); }
 static inline uint8_t max(uint8_t a, uint8_t b) { return(a>b? a:b); }
@@ -66,6 +67,7 @@ static void scanInit(uint16_t centerFreq, uint16_t step, uint16_t points)
   scanMinSNR  = 255;
   scanMaxSNR  = 0;
   scanStatus  = SCAN_RUN;
+  scanAborted = false;
   scanTime    = millis();
 
   const Band *band = getCurrentBand();
@@ -123,9 +125,17 @@ static bool scanTickTime()
   // Next frequency to scan
   freq += scanStep;
 
-  // Set next frequency to scan or expire scan
-  if((++scanCount >= scanMaxPoints) || !isFreqInBand(getCurrentBand(), freq) || consumeAbortPending())
-    scanStatus = SCAN_DONE;
+  // Set next frequency to scan or expire scan. consumeAbortPending() is only
+  // checked when the sweep has not ended naturally (preserving short-circuit),
+  // and its result is recorded so the remote streaming sweep can tell a normal
+  // completion (keep streaming) from a host-requested stop (any incoming byte).
+  bool ended   = (++scanCount >= scanMaxPoints) || !isFreqInBand(getCurrentBand(), freq);
+  bool aborted = !ended && consumeAbortPending();
+  if(ended || aborted)
+  {
+    scanStatus  = SCAN_DONE;
+    scanAborted = aborted;
+  }
   else
     rx.setFrequency(freq); // Implies tuning delay
 
@@ -168,6 +178,9 @@ void scanRun(uint16_t centerFreq, uint16_t step)
 //
 static Stream*  scanRemoteStream = nullptr;
 static uint16_t scanRemoteSavedFreq = 0;
+static bool     scanRemoteStreaming = false; // Keep re-sweeping until the host sends a byte
+static uint16_t scanRemoteStep = 1;          // Saved sweep geometry for streaming re-init
+static uint16_t scanRemotePoints = SCAN_POINTS;
 
 //
 // Stream the completed sweep to the remote:
@@ -201,7 +214,7 @@ bool scanRemoteActive()
 // `stream` once it completes. Returns immediately; the sweep is advanced by
 // scanRemoteTick(). Rejected (with a short error) if a scan is already running.
 //
-void scanRemoteStart(Stream* stream, uint16_t step, uint16_t points)
+static void scanRemoteBegin(Stream* stream, uint16_t step, uint16_t points, bool streaming)
 {
   // One sweep at a time (also blocks while the on-device scan is running)
   if(scanRemoteStream || (scanStatus == SCAN_RUN))
@@ -221,13 +234,37 @@ void scanRemoteStart(Stream* stream, uint16_t step, uint16_t points)
   seekStop = false;
   // Save current frequency for restore on completion
   scanRemoteSavedFreq = rx.getFrequency();
+  // Remember geometry so a streaming sweep can re-init each pass
+  scanRemoteStep      = step;
+  scanRemotePoints    = points;
+  scanRemoteStreaming = streaming;
   // Set up the scan centered on the current frequency
   scanInit(currentFrequency, step, points);
   scanRemoteStream = stream;
 
   // Show an indicator so the frozen-looking screen reads as intentional
   drawScreen();
-  drawMessage("Remote scan...");
+  drawMessage(streaming ? "Remote stream..." : "Remote scan...");
+}
+
+//
+// Begin a single sweep centered on the current frequency, streaming the result
+// to `stream` once it completes.
+//
+void scanRemoteStart(Stream* stream, uint16_t step, uint16_t points)
+{
+  scanRemoteBegin(stream, step, points, false);
+}
+
+//
+// Begin a continuous streaming sweep: emit one sweep after another (same
+// P-header + hex format) without restoring the radio between sweeps, until the
+// host sends any byte (caught by consumeAbortPending()). Avoids the per-sweep
+// round-trip and the mute/retune/redraw overhead, for a much faster scope.
+//
+void scanRemoteStartStream(Stream* stream, uint16_t step, uint16_t points)
+{
+  scanRemoteBegin(stream, step, points, true);
 }
 
 //
@@ -240,11 +277,23 @@ void scanRemoteTick()
   // Still running?
   if(scanTickTime()) return;
 
-  // Done (or aborted): stream the result and restore radio state
+  // Sweep finished: stream the result
   scanRemoteEmit(scanRemoteStream);
+
+  // Streaming mode: unless the host asked us to stop (any incoming byte aborts
+  // via consumeAbortPending()), immediately start the next sweep. Stay muted,
+  // keep the indicator, and leave the saved frequency in place.
+  if(scanRemoteStreaming && !scanAborted)
+  {
+    scanInit(currentFrequency, scanRemoteStep, scanRemotePoints);
+    return;
+  }
+
+  // Done (single sweep, or streaming stopped): restore radio state
   rx.setFrequency(scanRemoteSavedFreq);
   muteOn(MUTE_TEMP, false);
   rx.setMaxDelaySetFrequency(TUNE_DELAY_DEFAULT);
+  scanRemoteStreaming = false;
   scanRemoteStream = nullptr;
 
   // Restore the normal screen now (the main loop has no event to trigger it)
