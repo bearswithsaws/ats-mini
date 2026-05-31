@@ -173,7 +173,8 @@ static bool remoteSpectrumSweep(Stream* stream)
   if(points <= 0)
     return remoteShowError(stream, "Invalid points");
 
-  scanRemoteSweep(stream, (uint16_t)step, (uint16_t)points);
+  // Non-blocking: the sweep is advanced by scanRemoteTick() in the main loop
+  scanRemoteStart(stream, (uint16_t)step, (uint16_t)points);
   return true;
 }
 

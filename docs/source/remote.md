@@ -159,6 +159,11 @@ protocol so a host application can build a spectrum / waterfall view much faster
 polling the monitor output. It runs a single sweep centered on the current frequency,
 muting the audio for the duration and restoring the frequency afterwards.
 
+The sweep runs cooperatively: the command returns immediately and the scan advances in
+the background, so the receiver stays responsive (it shows a "Remote scan..." indicator
+while sweeping). Turning the encoder or pressing a key aborts the sweep early, returning
+whatever points were measured so far.
+
 Send the command as `P<step>,<points>` followed by a newline:
 
 * `step` - the frequency step between points, in the band's internal units

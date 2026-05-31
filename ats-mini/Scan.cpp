@@ -1,6 +1,7 @@
 #include "Common.h"
 #include "Utils.h"
 #include "Menu.h"
+#include "Draw.h"
 
 // Tuning delays after rx.setFrequency()
 #define TUNE_DELAY_DEFAULT 30
@@ -159,18 +160,56 @@ void scanRun(uint16_t centerFreq, uint16_t step)
 }
 
 //
-// Run a sweep centered on the current frequency and stream the result to the
-// remote. Output format (after the caller has disabled the telemetry log):
+// Cooperative remote sweep. Unlike scanRun(), the sweep is not run in a blocking
+// loop: scanRemoteStart() sets it up and scanRemoteTick() advances it one step
+// per main-loop iteration, so the radio's UI and I/O stay alive during the sweep.
+// While scanRemoteActive() the main loop must skip its periodic tuner/display work
+// (RSSI/squelch, RDS, ...) so it does not contend with the scan.
+//
+static Stream*  scanRemoteStream = nullptr;
+static uint16_t scanRemoteSavedFreq = 0;
+
+//
+// Stream the completed sweep to the remote:
 //
 //   P<startFreq>,<step>,<count>\r\n   - ASCII header line
 //   <count * 2-byte hex rssi,snr>     - hex blob, wrapped at 32 points per line
 //
 // startFreq/step are in the band's internal units (FM = 10 kHz, AM/SSB = 1 kHz),
 // count is the number of points actually measured (may be < requested at a band
-// edge). rssi/snr are the raw 0..127 values from the SI473x.
+// edge or on abort). rssi/snr are the raw 0..127 values from the SI473x.
 //
-void scanRemoteSweep(Stream* stream, uint16_t step, uint16_t points)
+static void scanRemoteEmit(Stream* stream)
 {
+  stream->printf("\r\nP%u,%u,%u\r\n", scanStartFreq, scanStep, scanCount);
+  for(uint16_t i=0 ; i<scanCount ; i++)
+  {
+    stream->printf("%02x%02x", scanData[i].rssi, scanData[i].snr);
+    if((i & 31) == 31) stream->println("");
+  }
+  stream->println("");
+  stream->flush();
+}
+
+bool scanRemoteActive()
+{
+  return scanRemoteStream != nullptr;
+}
+
+//
+// Begin a sweep centered on the current frequency, streaming the result to
+// `stream` once it completes. Returns immediately; the sweep is advanced by
+// scanRemoteTick(). Rejected (with a short error) if a scan is already running.
+//
+void scanRemoteStart(Stream* stream, uint16_t step, uint16_t points)
+{
+  // One sweep at a time (also blocks while the on-device scan is running)
+  if(scanRemoteStream || (scanStatus == SCAN_RUN))
+  {
+    stream->println("\r\nError: Scan busy");
+    return;
+  }
+
   // Sanitize parameters (scanInit clamps points, but guard step too)
   if(step < 1) step = 1;
 
@@ -180,24 +219,34 @@ void scanRemoteSweep(Stream* stream, uint16_t step, uint16_t points)
   muteOn(MUTE_TEMP, true);
   // Flag is set by rotary encoder and cleared on seek/scan entry
   seekStop = false;
-  // Save current frequency
-  uint16_t curFreq = rx.getFrequency();
-  // Scan the range centered on the current frequency
-  for(scanInit(currentFrequency, step, points) ; scanTickTime(););
-  // Restore current frequency
-  rx.setFrequency(curFreq);
-  // Unmute the audio
-  muteOn(MUTE_TEMP, false);
-  // Restore tuning delay
-  rx.setMaxDelaySetFrequency(TUNE_DELAY_DEFAULT);
+  // Save current frequency for restore on completion
+  scanRemoteSavedFreq = rx.getFrequency();
+  // Set up the scan centered on the current frequency
+  scanInit(currentFrequency, step, points);
+  scanRemoteStream = stream;
 
-  // Stream header then the hex blob of rssi/snr pairs
-  stream->printf("\r\nP%u,%u,%u\r\n", scanStartFreq, scanStep, scanCount);
-  for(uint16_t i=0 ; i<scanCount ; i++)
-  {
-    stream->printf("%02x%02x", scanData[i].rssi, scanData[i].snr);
-    if((i & 31) == 31) stream->println("");
-  }
-  stream->println("");
-  stream->flush();
+  // Show an indicator so the frozen-looking screen reads as intentional
+  drawScreen();
+  drawMessage("Remote scan...");
+}
+
+//
+// Advance an in-flight remote sweep by one step. Call once per main loop.
+//
+void scanRemoteTick()
+{
+  if(!scanRemoteStream) return;
+
+  // Still running?
+  if(scanTickTime()) return;
+
+  // Done (or aborted): stream the result and restore radio state
+  scanRemoteEmit(scanRemoteStream);
+  rx.setFrequency(scanRemoteSavedFreq);
+  muteOn(MUTE_TEMP, false);
+  rx.setMaxDelaySetFrequency(TUNE_DELAY_DEFAULT);
+  scanRemoteStream = nullptr;
+
+  // Restore the normal screen now (the main loop has no event to trigger it)
+  drawScreen();
 }
