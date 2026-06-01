@@ -349,14 +349,24 @@ void remotePrintStatus(Stream* stream, RemoteState* state)
   rx.getFrequency();
   uint16_t tuningCapacitor = rx.getAntennaTuningCapacitor();
 
+  // Band edges + type, so a host can build band-aware spectrum presets without
+  // mirroring the band table. Edges are converted to absolute Hz (FM bands step
+  // in 10 kHz units, all others in 1 kHz).
+  Band *band = getCurrentBand();
+  uint32_t bandUnitHz = (band->bandType == FM_BAND_TYPE) ? 10000 : 1000;
+  const char *bandType =
+    band->bandType == FM_BAND_TYPE ? "FM" :
+    band->bandType == MW_BAND_TYPE ? "MW" :
+    band->bandType == LW_BAND_TYPE ? "LW" : "SW";
+
   // Remote serial
-  stream->printf("%u,%u,%d,%d,%s,%s,%s,%s,%hu,%hu,%hu,%hu,%hu,%.2f,%hu\r\n",
+  stream->printf("%u,%u,%d,%d,%s,%s,%s,%s,%hu,%hu,%hu,%hu,%hu,%.2f,%hu,%lu,%lu,%s\r\n",
                 VER_APP,
                 currentFrequency,
                 currentBFO,
-                ((currentMode == USB) ? getCurrentBand()->usbCal :
-                 (currentMode == LSB) ? getCurrentBand()->lsbCal : 0),
-                getCurrentBand()->bandName,
+                ((currentMode == USB) ? band->usbCal :
+                 (currentMode == LSB) ? band->lsbCal : 0),
+                band->bandName,
                 bandModeDesc[currentMode],
                 getCurrentStep()->desc,
                 getCurrentBandwidth()->desc,
@@ -366,7 +376,10 @@ void remotePrintStatus(Stream* stream, RemoteState* state)
                 remoteSnr,
                 tuningCapacitor,
                 remoteVoltage,
-                state->remoteSeqnum
+                state->remoteSeqnum,
+                (unsigned long)((uint32_t)band->minimumFreq * bandUnitHz),
+                (unsigned long)((uint32_t)band->maximumFreq * bandUnitHz),
+                bandType
                 );
 }
 

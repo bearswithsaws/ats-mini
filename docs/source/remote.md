@@ -139,8 +139,14 @@ The following comma separated information is sent out when the monitor (log) mod
 | 13       | tuningCapacitor  | Antenna Capacitor | 0 - 6143                                           |
 | 14       | remoteVoltage    | ADC average value | Voltage = Value x 1.702 / 1000                     |
 | 15       | remoteSeqnum     | Sequence number   | 0 to 255 repeating sequence                        |
+| 16       | bandMinHz        | Band lower edge   | Absolute Hz                                        |
+| 17       | bandMaxHz        | Band upper edge   | Absolute Hz                                        |
+| 18       | bandType         | Band type         | `FM` / `MW` / `LW` / `SW`                          |
 
 In SSB mode, the "Display" frequency (Hz) = (currentFrequency x 1000) + currentBFO
+
+Fields 16–18 describe the current band so a host can build band-aware views (e.g.
+spectrum presets) without tracking the band table itself.
 
 #### RDS output
 
