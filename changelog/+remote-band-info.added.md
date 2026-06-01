@@ -1,0 +1,1 @@
+Append the current band's edges and type to the remote monitor output (bandMinHz, bandMaxHz in absolute Hz, and bandType FM/MW/LW/SW). This lets a host build band-aware views (such as spectrum-analyzer presets scaled to each band's width and signal spacing) without mirroring the firmware's band table.
